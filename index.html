@@ -13,46 +13,48 @@
             padding: 10px;
             border-radius: 5px;
             pointer-events: none;
+            z-index: 100;
+        }
+        #clickToStart {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00ff00;
+            font-size: 24px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 100;
         }
     </style>
 </head>
 <body>
-    <div id="instructions">WASD to Move | Click to Lock Mouse & Look</div>
-    <!-- Using Three.js from CDN for a quick 3D wireframe setup -->
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
-    <script type="module">
-        import * as THREE from 'three';
-        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+    <div id="instructions">WASD to Move | Mouse to Look | ESC to Unlock</div>
+    <div id="clickToStart">Click anywhere to start</div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
         // 1. Setup Scene
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x050505);
-        scene.fog = new THREE.Fog(0x050505, 1, 15);
+        scene.fog = new THREE.Fog(0x050505, 1, 20);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // 2. Lighting (Minimal)
+        // 2. Lighting
         const ambientLight = new THREE.AmbientLight(0x404040);
         scene.add(ambientLight);
-        const pointLight = new THREE.PointLight(0xffffff, 1, 10);
+        const pointLight = new THREE.PointLight(0xffffff, 1, 12);
         scene.add(pointLight);
 
-        // 3. Maze Generation (Simple Grid)
+        // 3. Maze Layout: 1 = wall, 0 = path
         const mazeSize = 10;
         const cellSize = 4;
+        const wallHeight = 3;
         const walls = [];
-        
-        // Simple binary layout: 1 = wall, 0 = path
+
         const layout = [
             [1,1,1,1,1,1,1,1,1,1],
             [1,0,0,0,1,0,0,0,0,1],
@@ -66,71 +68,104 @@
             [1,1,1,1,1,1,1,1,1,1],
         ];
 
-        const wallGeo = new THREE.BoxGeometry(cellSize, 3, cellSize);
+        const wallGeo = new THREE.BoxGeometry(cellSize, wallHeight, cellSize);
         const wallMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
 
         for (let z = 0; z < mazeSize; z++) {
             for (let x = 0; x < mazeSize; x++) {
                 if (layout[z][x] === 1) {
                     const wall = new THREE.Mesh(wallGeo, wallMat);
-                    wall.position.set(x * cellSize, 1.5, z * cellSize);
+                    wall.position.set(x * cellSize, wallHeight / 2, z * cellSize);
                     scene.add(wall);
                     walls.push(wall);
                 }
             }
         }
 
-        // Floor (Wireframe)
+        // Floor
         const floorGeo = new THREE.PlaneGeometry(mazeSize * cellSize, mazeSize * cellSize);
         const floorMat = new THREE.MeshBasicMaterial({ color: 0x222222, wireframe: true });
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
-        floor.position.set((mazeSize * cellSize)/2 - 2, 0, (mazeSize * cellSize)/2 - 2);
+        floor.position.set((mazeSize * cellSize) / 2 - cellSize / 2, 0, (mazeSize * cellSize) / 2 - cellSize / 2);
         scene.add(floor);
 
-        // 4. Movement & Navigation
-        const controls = new PointerLockControls(camera, document.body);
-        document.addEventListener('click', () => controls.lock());
+        // 4. Pointer Lock Controls (manual implementation - no import needed)
+        let isLocked = false;
+        const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+        const PI_2 = Math.PI / 2;
 
-        let moveForward = false;
-        let moveBackward = false;
-        let moveLeft = false;
-        let moveRight = false;
+        document.addEventListener('click', function () {
+            document.body.requestPointerLock();
+        });
+
+        document.addEventListener('pointerlockchange', function () {
+            isLocked = (document.pointerLockElement === document.body);
+            document.getElementById('clickToStart').style.display = isLocked ? 'none' : 'block';
+        });
+
+        document.addEventListener('mousemove', function (event) {
+            if (!isLocked) return;
+            const movementX = event.movementX || 0;
+            const movementY = event.movementY || 0;
+            euler.setFromQuaternion(camera.quaternion);
+            euler.y -= movementX * 0.002;
+            euler.x -= movementY * 0.002;
+            euler.x = Math.max(-PI_2, Math.min(PI_2, euler.x));
+            camera.quaternion.setFromEuler(euler);
+        });
+
+        // 5. Movement
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
 
-        const onKeyDown = (event) => {
-            switch (event.code) {
+        document.addEventListener('keydown', function (e) {
+            switch (e.code) {
                 case 'KeyW': moveForward = true; break;
                 case 'KeyA': moveLeft = true; break;
                 case 'KeyS': moveBackward = true; break;
                 case 'KeyD': moveRight = true; break;
             }
-        };
-        const onKeyUp = (event) => {
-            switch (event.code) {
+        });
+        document.addEventListener('keyup', function (e) {
+            switch (e.code) {
                 case 'KeyW': moveForward = false; break;
                 case 'KeyA': moveLeft = false; break;
                 case 'KeyS': moveBackward = false; break;
                 case 'KeyD': moveRight = false; break;
             }
-        };
+        });
 
-        document.addEventListener('keydown', onKeyDown);
-        document.addEventListener('keyup', onKeyUp);
+        // Start position (maze cell 1,1)
+        camera.position.set(1 * cellSize, 1.6, 1 * cellSize);
 
-        camera.position.set(cellSize, 1.6, cellSize); // Start at (1, 1) in maze grid
+        // 6. Collision check
+        function collidesWithWall(pos) {
+            for (let i = 0; i < walls.length; i++) {
+                const w = walls[i];
+                if (Math.abs(pos.x - w.position.x) < cellSize / 2 + 0.3 &&
+                    Math.abs(pos.z - w.position.z) < cellSize / 2 + 0.3) {
+                    return true;
+                }
+            }
+            return false;
+        }
 
-        // 5. Game Loop
+        // 7. Game Loop
         const clock = new THREE.Clock();
+
         function animate() {
             requestAnimationFrame(animate);
-            
-            if (controls.isLocked) {
+
+            if (isLocked) {
                 const delta = clock.getDelta();
+
+                // Damping
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
 
+                // Direction from input
                 direction.z = Number(moveForward) - Number(moveBackward);
                 direction.x = Number(moveRight) - Number(moveLeft);
                 direction.normalize();
@@ -138,18 +173,25 @@
                 if (moveForward || moveBackward) velocity.z -= direction.z * 40.0 * delta;
                 if (moveLeft || moveRight) velocity.x -= direction.x * 40.0 * delta;
 
-                // Simple Collision Detection
-                const oldPos = camera.position.clone();
-                controls.moveRight(-velocity.x * delta);
-                controls.moveForward(-velocity.z * delta);
+                // Calculate movement vectors
+                const forward = new THREE.Vector3();
+                camera.getWorldDirection(forward);
+                forward.y = 0;
+                forward.normalize();
 
-                // Check if new position is inside a wall
-                for (let wall of walls) {
-                    if (Math.abs(camera.position.x - wall.position.x) < cellSize/2 + 0.5 &&
-                        Math.abs(camera.position.z - wall.position.z) < cellSize/2 + 0.5) {
-                        camera.position.copy(oldPos);
-                        break;
-                    }
+                const right = new THREE.Vector3();
+                right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+                const oldPos = camera.position.clone();
+
+                // Apply movement
+                camera.position.addScaledVector(forward, -velocity.z * delta);
+                camera.position.addScaledVector(right, -velocity.x * delta);
+                camera.position.y = 1.6; // Lock height
+
+                // Collision: revert if inside a wall
+                if (collidesWithWall(camera.position)) {
+                    camera.position.copy(oldPos);
                 }
             }
 
@@ -157,7 +199,7 @@
             renderer.render(scene, camera);
         }
 
-        window.addEventListener('resize', () => {
+        window.addEventListener('resize', function () {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
